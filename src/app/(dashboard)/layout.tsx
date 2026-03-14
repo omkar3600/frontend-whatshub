@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useAuth } from '@/components/providers';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -22,7 +22,6 @@ import {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const { logout, user } = useAuth();
     const pathname = usePathname();
-    const searchParams = useSearchParams();
     const [isCollapsed, setIsCollapsed] = useState(false);
     const socketRef = useRef<Socket | null>(null);
 
@@ -85,24 +84,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { name: 'Settings', href: '/settings', icon: Settings },
     ];
 
-    const isChatActive = pathname.startsWith('/inbox') && searchParams.get('convoId');
-
     return (
         <div className="flex h-screen bg-[#fafafa] overflow-hidden flex-col md:flex-row">
             {/* Mobile Header */}
-            {!isChatActive && (
-                <header className="flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden shadow-sm z-50">
-                    <Link href="/dashboard" className="flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 shadow-md">
-                            <MessageSquare className="h-5 w-5 text-white" />
-                        </div>
-                        <span className="text-lg font-bold text-slate-900 tracking-tight">WhatsHub</span>
-                    </Link>
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700 text-xs">
-                        {(user.username || user.email || '?').substring(0, 2).toUpperCase()}
-                    </div>
-                </header>
-            )}
+            <Suspense fallback={null}>
+                <MobileHeader pathname={pathname} user={user} />
+            </Suspense>
 
             {/* Desktop Sidebar */}
             <aside
@@ -186,32 +173,79 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </aside>
 
             {/* Mobile Navigation Bar */}
-            {!isChatActive && (
-                <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 flex items-center justify-around px-2 z-50 md:hidden shadow-[0_-4px_10px_rgba(0,0,0,0.03)] focus-within:ring-2 focus-within:ring-emerald-500">
-                    {navItems.slice(0, 5).map((item) => {
-                        const active = pathname.startsWith(item.href);
-                        const Icon = item.icon;
-                        return (
-                            <Link
-                                key={item.href}
-                                href={item.href}
-                                className={`flex flex-col items-center gap-1 p-2 transition-all duration-200 ${active ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'
-                                    }`}
-                            >
-                                <Icon className={`h-5 w-5 ${active ? 'scale-110' : ''}`} />
-                                <span className="text-[10px] font-medium">{item.name}</span>
-                            </Link>
-                        );
-                    })}
-                </nav>
-            )}
+            <Suspense fallback={null}>
+                <MobileNavBar pathname={pathname} navItems={navItems} />
+            </Suspense>
 
             {/* Main Content Area */}
-            <main className={`flex-1 overflow-auto bg-[#fafafa] relative scroll-smooth ${isChatActive ? 'pb-0' : 'pb-16'} md:pb-0`}>
-                <div className={`${pathname.startsWith('/inbox') ? 'w-full h-full' : 'dashboard-container layout-padding'}`}>
-                    {children}
-                </div>
+            <main className={`flex-1 overflow-auto bg-[#fafafa] relative scroll-smooth md:pb-0`}>
+                <Suspense fallback={null}>
+                    <MainContentWrapper pathname={pathname}>
+                        {children}
+                    </MainContentWrapper>
+                </Suspense>
             </main>
+        </div>
+    );
+}
+
+function MobileHeader({ pathname, user }: { pathname: string, user: any }) {
+    const searchParams = useSearchParams();
+    const isChatActive = pathname.startsWith('/inbox') && searchParams.get('convoId');
+
+    if (isChatActive) return null;
+
+    return (
+        <header className="flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden shadow-sm z-50">
+            <Link href="/dashboard" className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 shadow-md">
+                    <MessageSquare className="h-5 w-5 text-white" />
+                </div>
+                <span className="text-lg font-bold text-slate-900 tracking-tight">WhatsHub</span>
+            </Link>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700 text-xs">
+                {(user.username || user.email || '?').substring(0, 2).toUpperCase()}
+            </div>
+        </header>
+    );
+}
+
+function MobileNavBar({ pathname, navItems }: { pathname: string, navItems: any[] }) {
+    const searchParams = useSearchParams();
+    const isChatActive = pathname.startsWith('/inbox') && searchParams.get('convoId');
+
+    if (isChatActive) return null;
+
+    return (
+        <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 flex items-center justify-around px-2 z-50 md:hidden shadow-[0_-4px_10px_rgba(0,0,0,0.03)] focus-within:ring-2 focus-within:ring-emerald-500">
+            {navItems.slice(0, 5).map((item) => {
+                const active = pathname.startsWith(item.href);
+                const Icon = item.icon;
+                return (
+                    <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex flex-col items-center gap-1 p-2 transition-all duration-200 ${active ? 'text-emerald-600' : 'text-slate-400 hover:text-slate-600'
+                            }`}
+                    >
+                        <Icon className={`h-5 w-5 ${active ? 'scale-110' : ''}`} />
+                        <span className="text-[10px] font-medium">{item.name}</span>
+                    </Link>
+                );
+            })}
+        </nav>
+    );
+}
+
+function MainContentWrapper({ pathname, children }: { pathname: string, children: React.ReactNode }) {
+    const searchParams = useSearchParams();
+    const isChatActive = pathname.startsWith('/inbox') && searchParams.get('convoId');
+
+    return (
+        <div className={`${isChatActive ? 'pb-0' : 'pb-16'} md:pb-0 h-full`}>
+            <div className={`${pathname.startsWith('/inbox') ? 'w-full h-full' : 'dashboard-container layout-padding'}`}>
+                {children}
+            </div>
         </div>
     );
 }

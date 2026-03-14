@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useAuth } from '@/components/providers';
 import { api } from '@/lib/api';
 import { io, Socket } from 'socket.io-client';
@@ -8,7 +8,7 @@ import { Search, Send, File, Image as ImageIcon, Check, CheckCheck, MessageSquar
 import { useSearchParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 
-export default function InboxPage() {
+function InboxContent() {
     const { user } = useAuth();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -369,5 +369,18 @@ export default function InboxPage() {
                 )}
             </div>
         </div>
+    );
+}
+
+export default function InboxPage() {
+    return (
+        <Suspense fallback={
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-slate-50/50">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mb-4"></div>
+                <p className="text-sm font-medium text-slate-500">Loading your messages...</p>
+            </div>
+        }>
+            <InboxContent />
+        </Suspense>
     );
 }
