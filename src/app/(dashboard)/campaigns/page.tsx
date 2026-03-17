@@ -59,6 +59,7 @@ function CampaignStatusBadge({ status }: { status: string }) {
         completed:  'bg-blue-50 text-blue-700 ring-blue-600/20',
         processing: 'bg-amber-50 text-amber-700 ring-amber-600/20',
         scheduled:  'bg-slate-100 text-slate-600 ring-slate-500/20',
+        aborted:    'bg-rose-50 text-rose-700 ring-rose-600/20',
     };
     return (
         <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset ${map[status] || map.scheduled}`}>
@@ -94,10 +95,33 @@ export default function CampaignsPage() {
     const [tagsModalOpen, setTagsModalOpen] = useState(false);
     const [isTagging, setIsTagging] = useState(false);
 
+    // Retargeting
+    const [retargetModalOpen, setRetargetModalOpen] = useState(false);
+    const [retargetName, setRetargetName] = useState('');
+    const [retargetTemplateId, setRetargetTemplateId] = useState('');
+    const [isRetargeting, setIsRetargeting] = useState(false);
+
+    // Creation target options
+    const [targetType, setTargetType] = useState<'all' | 'tags' | 'contacts'>('all');
+    const [creationTags, setCreationTags] = useState('');
+    const [creationSelectedPhones, setCreationSelectedPhones] = useState<string[]>([]);
+    const [allContacts, setAllContacts] = useState<any[]>([]);
+    const [contactSearch, setContactSearch] = useState('');
+
     useEffect(() => {
         fetchCampaigns();
         fetchTemplates();
+        fetchAllContacts();
     }, []);
+
+    const fetchAllContacts = async () => {
+        try {
+            const { data } = await api.get('/contacts');
+            setAllContacts(data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
 
     const fetchCampaigns = async () => {
         try {
@@ -194,6 +218,55 @@ export default function CampaignsPage() {
         }
     };
 
+    const handleAbortCampaign = async (campId: string) => {
+        if (!confirm('Are you sure you want to abort this campaign? This will stop further messages from being sent.')) return;
+        try {
+            await api.post(`/campaigns/${campId}/abort`);
+            fetchCampaigns();
+            if (analytics?.campaign.id === campId) openAnalytics(campId);
+        } catch (err) {
+            console.error(err);
+            alert('Failed to abort campaign');
+        }
+    };
+
+    const handleDeleteCampaign = async (campId: string) => {
+        if (!confirm('Are you sure you want to delete this campaign?')) return;
+        try {
+            await api.delete(`/campaigns/${campId}`);
+            fetchCampaigns();
+            if (analytics?.campaign.id === campId) {
+                setAnalyticsOpen(false);
+                setAnalytics(null);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Failed to delete campaign');
+        }
+    };
+
+    const handleRetarget = async () => {
+        if (!analytics || !retargetTemplateId || !retargetName) return;
+        setIsRetargeting(true);
+        try {
+            await api.post(`/campaigns/${analytics.campaign.id}/retarget`, {
+                name: retargetName,
+                templateId: retargetTemplateId,
+                phones: Array.from(selectedPhones)
+            });
+            setRetargetModalOpen(false);
+            setRetargetName('');
+            setRetargetTemplateId('');
+            alert('Retargeting campaign launched!');
+            fetchCampaigns();
+        } catch (err) {
+            console.error(err);
+            alert('Failed to launch retargeting campaign');
+        } finally {
+            setIsRetargeting(false);
+        }
+    };
+
     const fetchTemplates = async () => {
         try {
             const { data } = await api.get('/templates');
@@ -245,7 +318,9 @@ export default function CampaignsPage() {
                 scheduledAt: scheduledAtUTC,
                 sendNow,
                 templateParams: components.length > 0 ? components : undefined,
-                headerMediaUrl: headerMediaUrl || undefined
+                headerMediaUrl: headerMediaUrl || undefined,
+                targetTags: targetType === 'tags' ? creationTags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+                targetPhones: targetType === 'contacts' ? creationSelectedPhones : undefined
             });
             setIsModalOpen(false);
             fetchCampaigns();
@@ -254,6 +329,9 @@ export default function CampaignsPage() {
             setSelectedTemplate(null);
             setTemplateParams({});
             setHeaderMediaUrl('');
+            setTargetType('all');
+            setCreationTags('');
+            setCreationSelectedPhones([]);
         } catch (err) {
             console.error(err);
             alert('Failed to create campaign');
@@ -290,298 +368,364 @@ export default function CampaignsPage() {
     return (
         <div className="animate-in fade-in duration-500">
             {/* ── Page Header ──────────────────────────────────────────────── */}
-            <div className="page-header">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-900">Broadcast Campaigns</h1>
-                    <p className="text-sm text-slate-500">Send mass messages to your targeted contacts.</p>
-                </div>
-                <button
-                    onClick={() => setIsModalOpen(true)}
-                    className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-md hover:bg-emerald-700 transition-colors"
-                >
-                    <Plus className="h-4 w-4" />
-                    Create Campaign
-                </button>
-            </div>
-
-            {/* ── Global Summary Cards ──────────────────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-                {[
-                    { label: 'Total Campaigns', value: globalStats.total, icon: Megaphone,         color: 'text-slate-700', bg: 'bg-slate-100' },
-                    { label: 'Total Sent',       value: globalStats.sent,      icon: Send,          color: 'text-sky-600',    bg: 'bg-sky-100' },
-                    { label: 'Delivered',        value: globalStats.delivered, icon: CheckCircle2,  color: 'text-emerald-600',bg: 'bg-emerald-100' },
-                    { label: 'Read',             value: globalStats.read,      icon: Eye,           color: 'text-violet-600', bg: 'bg-violet-100' },
-                    { label: 'Clicked',          value: globalStats.clicked,   icon: MousePointerClick, color: 'text-orange-600', bg: 'bg-orange-100' },
-                    { label: 'Failed',           value: globalStats.failed,    icon: XCircle,       color: 'text-rose-600',   bg: 'bg-rose-100' },
-                ].map(({ label, value, icon: Icon, color, bg }) => (
-                    <div key={label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex items-center gap-3">
-                        <div className={`h-9 w-9 rounded-lg ${bg} ${color} flex items-center justify-center shrink-0`}>
-                            <Icon className="h-4 w-4" />
-                        </div>
+            {!analyticsOpen && (
+                <>
+                    <div className="page-header">
                         <div>
-                            <div className={`text-xl font-bold ${color}`}>{value}</div>
-                            <div className="text-[10px] text-slate-500 font-medium leading-tight">{label}</div>
+                            <h1 className="text-2xl font-bold text-slate-900">Broadcast Campaigns</h1>
+                            <p className="text-sm text-slate-500">Send mass messages to your targeted contacts.</p>
                         </div>
+                        <button
+                            onClick={() => setIsModalOpen(true)}
+                            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-md hover:bg-emerald-700 transition-colors"
+                        >
+                            <Plus className="h-4 w-4" />
+                            Create Campaign
+                        </button>
                     </div>
-                ))}
-            </div>
 
-            {/* ── Campaign Cards Grid ───────────────────────────────────────── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {campaigns.map(camp => (
-                    <div key={camp.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                        <div className="p-5">
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="h-10 w-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                                        <Megaphone className="h-5 w-5" />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-slate-900">{camp.name}</h3>
-                                        <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
-                                            <Clock className="h-3 w-3" /> {format(new Date(camp.scheduledAt), 'PPp')}
-                                        </p>
-                                    </div>
+                    {/* ── Global Summary Cards ──────────────────────────────────────── */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+                        {[
+                            { label: 'Total Campaigns', value: globalStats.total, icon: Megaphone,         color: 'text-slate-700', bg: 'bg-slate-100' },
+                            { label: 'Total Sent',       value: globalStats.sent,      icon: Send,          color: 'text-sky-600',    bg: 'bg-sky-100' },
+                            { label: 'Delivered',        value: globalStats.delivered, icon: CheckCircle2,  color: 'text-emerald-600',bg: 'bg-emerald-100' },
+                            { label: 'Read',             value: globalStats.read,      icon: Eye,           color: 'text-violet-600', bg: 'bg-violet-100' },
+                            { label: 'Clicked',          value: globalStats.clicked,   icon: MousePointerClick, color: 'text-orange-600', bg: 'bg-orange-100' },
+                            { label: 'Failed',           value: globalStats.failed,    icon: XCircle,       color: 'text-rose-600',   bg: 'bg-rose-100' },
+                        ].map(({ label, value, icon: Icon, color, bg }) => (
+                            <div key={label} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex items-center gap-3">
+                                <div className={`h-9 w-9 rounded-lg ${bg} ${color} flex items-center justify-center shrink-0`}>
+                                    <Icon className="h-4 w-4" />
                                 </div>
-                                <CampaignStatusBadge status={camp.status} />
-                            </div>
-
-                            <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Template</span>
-                                    <span className="font-medium text-slate-700">{camp.template?.templateName || 'Unknown'}</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-slate-500">Target Tags</span>
-                                    <span className="font-medium text-slate-700">
-                                        {camp.targetTags?.length ? camp.targetTags.join(', ') : 'All Contacts'}
-                                    </span>
+                                <div>
+                                    <div className={`text-xl font-bold ${color}`}>{value}</div>
+                                    <div className="text-[10px] text-slate-500 font-medium leading-tight">{label}</div>
                                 </div>
                             </div>
-                        </div>
+                        ))}
+                    </div>
 
-                        {/* Compact stats strip */}
-                        {camp.stats && (
-                            <div className="border-t border-slate-100 bg-slate-50 px-5 py-2">
-                                <div className="grid grid-cols-4 divide-x divide-slate-200 text-center">
-                                    {[
-                                        { key: 'sent',      label: 'Sent',      val: camp.stats.sent,      color: 'text-sky-600' },
-                                        { key: 'delivered', label: 'Delivered', val: camp.stats.delivered, color: 'text-emerald-600' },
-                                        { key: 'read',      label: 'Read',      val: camp.stats.read ?? 0, color: 'text-violet-600' },
-                                        { key: 'failed',    label: 'Failed',    val: camp.stats.failed,    color: 'text-rose-600' },
-                                    ].map(({ key, label, val, color }) => (
-                                        <div key={key} className="px-1">
-                                            <div className="text-[9px] text-slate-400 uppercase tracking-wider">{label}</div>
-                                            <div className={`font-bold text-sm ${color}`}>{val ?? 0}</div>
+                    {/* ── Campaign Cards Grid ───────────────────────────────────────── */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {campaigns.map(camp => (
+                            <div key={camp.id} className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                                <div className="p-5">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                                <Megaphone className="h-5 w-5" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-slate-900">{camp.name}</h3>
+                                                <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                                                    <Clock className="h-3 w-3" /> {format(new Date(camp.scheduledAt), 'PPp')}
+                                                </p>
+                                            </div>
                                         </div>
-                                    ))}
+                                        <div className="flex flex-col items-end gap-2">
+                                            <CampaignStatusBadge status={camp.status} />
+                                            {camp.status === 'scheduled' && (
+                                                <button onClick={() => handleDeleteCampaign(camp.id)} className="text-[10px] text-rose-500 hover:text-rose-700 font-bold underline">Delete</button>
+                                            )}
+                                            {camp.status === 'processing' && (
+                                                <button onClick={() => handleAbortCampaign(camp.id)} className="text-[10px] text-rose-500 hover:text-rose-700 font-bold underline">Abort</button>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-slate-500">Template</span>
+                                            <span className="font-medium text-slate-700">{camp.template?.templateName || 'Unknown'}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-slate-500">Targeting</span>
+                                            <span className="font-medium text-slate-700 text-right max-w-[150px] truncate">
+                                                {camp.targetPhones?.length 
+                                                    ? `${camp.targetPhones.length} Contacts`
+                                                    : camp.targetTags?.length 
+                                                        ? `Tags: ${camp.targetTags.join(', ')}` 
+                                                        : 'All Contacts'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Compact stats strip */}
+                                {camp.stats && (
+                                    <div className="border-t border-slate-100 bg-slate-50 px-5 py-2">
+                                        <div className="grid grid-cols-4 divide-x divide-slate-200 text-center">
+                                            {[
+                                                { key: 'sent',      label: 'Sent',      val: camp.stats.sent,      color: 'text-sky-600' },
+                                                { key: 'delivered', label: 'Delivered', val: camp.stats.delivered, color: 'text-emerald-600' },
+                                                { key: 'read',      label: 'Read',      val: camp.stats.read ?? 0, color: 'text-violet-600' },
+                                                { key: 'failed',    label: 'Failed',    val: camp.stats.failed,    color: 'text-rose-600' },
+                                            ].map(({ key, label, val, color }) => (
+                                                <div key={key} className="px-1">
+                                                    <div className="text-[9px] text-slate-400 uppercase tracking-wider">{label}</div>
+                                                    <div className={`font-bold text-sm ${color}`}>{val ?? 0}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Actions */}
+                                <div className="border-t border-slate-100 px-5 py-3 flex items-center justify-between gap-2">
+                                    <button
+                                        onClick={() => openAnalytics(camp.id)}
+                                        className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors"
+                                    >
+                                        <BarChart3 className="h-3.5 w-3.5" />
+                                        View Analytics
+                                        <ChevronRight className="h-3 w-3" />
+                                    </button>
+
+                                    <div className="flex gap-2">
+                                        {camp.status === 'completed' && (camp.stats?.failed ?? 0) > 0 && (
+                                            <button
+                                                onClick={() => handleResendFailed(camp.id)}
+                                                disabled={isResending === camp.id}
+                                                className="flex items-center gap-1 text-[10px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 px-2 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                                            >
+                                                {isResending === camp.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+                                                Resend Failed
+                                            </button>
+                                        )}
+                                        {camp.status !== 'completed' && camp.status !== 'aborted' && (
+                                            <button
+                                                onClick={() => handleDeleteCampaign(camp.id)}
+                                                className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"
+                                                title="Delete Campaign"
+                                            >
+                                                <XCircle className="h-4 w-4" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        )}
-
-                        {/* Actions */}
-                        <div className="border-t border-slate-100 px-5 py-3 flex items-center justify-between gap-2">
-                            <button
-                                onClick={() => openAnalytics(camp.id)}
-                                className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors"
-                            >
-                                <BarChart3 className="h-3.5 w-3.5" />
-                                View Analytics
-                                <ChevronRight className="h-3 w-3" />
-                            </button>
-
-                            {camp.status === 'completed' && (camp.stats?.failed ?? 0) > 0 && (
-                                <button
-                                    onClick={() => handleResendFailed(camp.id)}
-                                    disabled={isResending === camp.id}
-                                    className="flex items-center gap-1 text-[10px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 px-2 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                                >
-                                    {isResending === camp.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
-                                    Resend Failed
-                                </button>
-                            )}
-                        </div>
+                        ))}
                     </div>
-                ))}
-            </div>
 
-            {campaigns.length === 0 && (
-                <div className="p-12 text-center text-slate-500 border-2 border-dashed border-slate-200 rounded-2xl bg-white">
-                    <Megaphone className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-                    <p className="font-medium text-slate-900">No campaigns yet</p>
-                    <p className="mt-1 text-sm">Create your first broadcast to reach your audience.</p>
-                </div>
+                    {campaigns.length === 0 && (
+                        <div className="p-12 text-center text-slate-500 border-2 border-dashed border-slate-200 rounded-2xl bg-white">
+                            <Megaphone className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                            <p className="font-medium text-slate-900">No campaigns yet</p>
+                            <p className="mt-1 text-sm">Create your first broadcast to reach your audience.</p>
+                        </div>
+                    )}
+                </>
             )}
 
             {/* ═══════════════════════════════════════════════════════════════════
-                Analytics Drawer
+                Full-page Analytics
             ════════════════════════════════════════════════════════════════════ */}
             {analyticsOpen && (
-                <div className="fixed inset-0 z-50 flex">
-                    {/* Backdrop */}
-                    <div
-                        className="absolute inset-0 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
-                        onClick={() => { setAnalyticsOpen(false); setAnalytics(null); }}
-                    />
-
-                    {/* Drawer */}
-                    <div className="ml-auto relative z-10 h-full w-full max-w-2xl bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
-                        {/* Drawer Header */}
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    {/* Header */}
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+                        <div className="flex items-center gap-4">
+                            <button
+                                onClick={() => { setAnalyticsOpen(false); setAnalytics(null); }}
+                                className="p-2 hover:bg-white rounded-xl text-slate-600 border border-transparent hover:border-slate-200 transition-all shadow-sm group"
+                            >
+                                <ChevronRight className="h-5 w-5 rotate-180 group-hover:-translate-x-0.5 transition-transform" />
+                            </button>
                             <div className="flex items-center gap-3">
-                                <div className="h-9 w-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                                    <BarChart3 className="h-4 w-4" />
+                                <div className="h-10 w-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-200">
+                                    <BarChart3 className="h-5 w-5" />
                                 </div>
                                 <div>
-                                    <h2 className="font-bold text-slate-900">
+                                    <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                                         {analytics ? analytics.campaign.name : 'Campaign Analytics'}
                                     </h2>
                                     {analytics && (
-                                        <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
-                                            <Clock className="h-3 w-3" />
-                                            {format(new Date(analytics.campaign.scheduledAt), 'PPp')}
+                                        <div className="flex items-center gap-3 mt-0.5">
+                                            <p className="text-xs text-slate-500 flex items-center gap-1">
+                                                <Clock className="h-3 w-3" />
+                                                {format(new Date(analytics.campaign.scheduledAt), 'PPp')}
+                                            </p>
                                             <CampaignStatusBadge status={analytics.campaign.status} />
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => { setAnalyticsOpen(false); setAnalytics(null); }}
-                                className="p-2 hover:bg-slate-100 rounded-lg text-slate-400"
-                            >
-                                <X className="h-5 w-5" />
-                            </button>
-                        </div>
-
-                        {analyticsLoading ? (
-                            <div className="flex-1 flex items-center justify-center">
-                                <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-                            </div>
-                        ) : analytics ? (
-                            <>
-                                {/* Stats row */}
-                                <div className="px-6 py-4 border-b border-slate-100 shrink-0">
-                                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                                        {[
-                                            { label: 'Total',     value: analytics.stats.total,     color: 'text-slate-700', bg: 'bg-slate-100' },
-                                            { label: 'Sent',      value: analytics.stats.sent,      color: 'text-sky-600',    bg: 'bg-sky-100' },
-                                            { label: 'Delivered', value: analytics.stats.delivered, color: 'text-emerald-600',bg: 'bg-emerald-100' },
-                                            { label: 'Read',      value: analytics.stats.read,      color: 'text-violet-600', bg: 'bg-violet-100' },
-                                            { label: 'Clicked',   value: analytics.stats.clicked,   color: 'text-orange-600', bg: 'bg-orange-100' },
-                                            { label: 'Failed',    value: analytics.stats.failed,    color: 'text-rose-600',   bg: 'bg-rose-100' },
-                                        ].map(({ label, value, color, bg }) => (
-                                            <div key={label} className={`rounded-xl ${bg} p-3 text-center`}>
-                                                <div className={`text-2xl font-black ${color}`}>{value}</div>
-                                                <div className="text-[9px] text-slate-500 uppercase tracking-wider font-bold mt-0.5">{label}</div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {/* Progress bar */}
-                                    {analytics.stats.total > 0 && (
-                                        <div className="mt-3 h-2 rounded-full overflow-hidden bg-slate-100 flex">
-                                            {analytics.stats.read > 0 && (
-                                                <div title="Read" className="bg-violet-500 transition-all" style={{ width: `${(analytics.stats.read / analytics.stats.total) * 100}%` }} />
-                                            )}
-                                            {((analytics.stats.delivered - analytics.stats.read) > 0) && (
-                                                <div title="Delivered" className="bg-emerald-500 transition-all" style={{ width: `${((analytics.stats.delivered - analytics.stats.read) / analytics.stats.total) * 100}%` }} />
-                                            )}
-                                            {((analytics.stats.sent - analytics.stats.delivered) > 0) && (
-                                                <div title="Sent" className="bg-sky-400 transition-all" style={{ width: `${((analytics.stats.sent - analytics.stats.delivered) / analytics.stats.total) * 100}%` }} />
-                                            )}
-                                            {analytics.stats.failed > 0 && (
-                                                <div title="Failed" className="bg-rose-400 transition-all" style={{ width: `${(analytics.stats.failed / analytics.stats.total) * 100}%` }} />
+                                            {analytics.campaign.status === 'processing' && (
+                                                <button onClick={() => handleAbortCampaign(analytics.campaign.id)} className="text-[10px] text-rose-500 hover:text-rose-700 font-bold underline ml-2">Abort Campaign</button>
                                             )}
                                         </div>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                             <button
+                                onClick={() => { setAnalyticsOpen(false); setAnalytics(null); }}
+                                className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-white rounded-xl border border-transparent hover:border-slate-200 transition-all shadow-sm"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
 
-                                {/* Tabs */}
-                                <div className="px-6 pt-3 border-b border-slate-100 shrink-0 overflow-x-auto">
-                                    <div className="flex gap-1 min-w-max">
+                    {analyticsLoading ? (
+                        <div className="h-[600px] flex items-center justify-center">
+                            <div className="text-center">
+                                <Loader2 className="h-10 w-10 animate-spin text-emerald-500 mx-auto mb-4" />
+                                <p className="text-slate-500 font-medium">Crunching analytics data...</p>
+                            </div>
+                        </div>
+                    ) : analytics ? (
+                        <div className="flex flex-col h-[700px]">
+                            {/* Stats row */}
+                            <div className="px-8 py-8 border-b border-slate-100">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                                    {[
+                                        { label: 'Total',     value: analytics.stats.total,     color: 'text-slate-700', bg: 'bg-slate-50', icon: Users },
+                                        { label: 'Sent',      value: analytics.stats.sent,      color: 'text-sky-600',    bg: 'bg-sky-50', icon: Send },
+                                        { label: 'Delivered', value: analytics.stats.delivered, color: 'text-emerald-600',bg: 'bg-emerald-50', icon: CheckCircle2 },
+                                        { label: 'Read',      value: analytics.stats.read,      color: 'text-violet-600', bg: 'bg-violet-50', icon: Eye },
+                                        { label: 'Clicked',   value: analytics.stats.clicked,   color: 'text-orange-600', bg: 'bg-orange-100', icon: MousePointerClick },
+                                        { label: 'Failed',    value: analytics.stats.failed,    color: 'text-rose-600',   bg: 'bg-rose-50', icon: XCircle },
+                                    ].map(({ label, value, color, bg, icon: Icon }) => {
+                                        const percentage = analytics.stats.total > 0 ? Math.round((value / analytics.stats.total) * 100) : 0;
+                                        return (
+                                            <div key={label} className={`rounded-2xl ${bg} p-5 border border-white shadow-sm flex flex-col items-center relative overflow-hidden group`}>
+                                                <div className={`absolute top-0 right-0 p-2 opacity-10 group-hover:scale-110 transition-transform ${color}`}>
+                                                    <Icon className="h-12 w-12" />
+                                                </div>
+                                                <div className={`text-3xl font-black ${color} relative z-10`}>{value}</div>
+                                                <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black mt-1 relative z-10">{label}</div>
+                                                {label !== 'Total' && (
+                                                    <div className={`mt-2 text-xs font-bold px-2 py-0.5 rounded-full bg-white/50 border border-white shadow-sm ${color} relative z-10`}>
+                                                        {percentage}%
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Progress bar */}
+                                {analytics.stats.total > 0 && (
+                                    <div className="mt-8">
+                                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2 px-1">
+                                            <span>Campaign Reach</span>
+                                            <span>{Math.round(((analytics.stats.delivered) / analytics.stats.total) * 100)}% Success Rate</span>
+                                        </div>
+                                        <div className="h-4 rounded-2xl overflow-hidden bg-slate-100 flex shadow-inner border border-slate-200/50 p-0.5">
+                                            {analytics.stats.read > 0 && (
+                                                <div title={`Read: ${analytics.stats.read}`} className="bg-violet-500 transition-all rounded-l-full" style={{ width: `${(analytics.stats.read / analytics.stats.total) * 100}%` }} />
+                                            )}
+                                            {((analytics.stats.delivered - analytics.stats.read) > 0) && (
+                                                <div title={`Delivered: ${analytics.stats.delivered - analytics.stats.read}`} className="bg-emerald-500 transition-all" style={{ width: `${((analytics.stats.delivered - analytics.stats.read) / analytics.stats.total) * 100}%` }} />
+                                            )}
+                                            {((analytics.stats.sent - analytics.stats.delivered) > 0) && (
+                                                <div title={`Sent: ${analytics.stats.sent - analytics.stats.delivered}`} className="bg-sky-400 transition-all" style={{ width: `${((analytics.stats.sent - analytics.stats.delivered) / analytics.stats.total) * 100}%` }} />
+                                            )}
+                                            {analytics.stats.failed > 0 && (
+                                                <div title={`Failed: ${analytics.stats.failed}`} className="bg-rose-400 transition-all rounded-r-full" style={{ width: `${(analytics.stats.failed / analytics.stats.total) * 100}%` }} />
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Tabs Area */}
+                            <div className="flex-1 flex flex-col min-h-0 bg-white">
+                                <div className="px-8 pt-4 border-b border-slate-100 flex items-center justify-between">
+                                    <div className="flex gap-2">
                                         {tabs.map(tab => (
                                             <button
                                                 key={tab.key}
                                                 onClick={() => { setActiveTab(tab.key); setSelectedPhones(new Set()); }}
-                                                className={`px-3 py-2 text-xs font-bold rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+                                                className={`px-4 py-3 text-xs font-black uppercase tracking-widest border-b-2 transition-all relative ${
                                                     activeTab === tab.key
-                                                        ? `border-emerald-500 ${tab.color} bg-emerald-50`
-                                                        : 'border-transparent text-slate-500 hover:text-slate-700'
+                                                        ? `border-emerald-500 ${tab.color} bg-emerald-50/50`
+                                                        : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'
                                                 }`}
                                             >
                                                 {tab.label}
-                                                <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-black ${
-                                                    activeTab === tab.key ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                                                <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] shadow-sm ${
+                                                    activeTab === tab.key ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500'
                                                 }`}>{tab.count}</span>
                                             </button>
                                         ))}
                                     </div>
-                                </div>
 
-                                {/* Bulk action bar */}
-                                {selectedPhones.size > 0 && (
-                                    <div className="px-6 py-2 bg-emerald-50 border-b border-emerald-100 flex items-center justify-between shrink-0 animate-in fade-in slide-in-from-top-2 duration-200">
-                                        <span className="text-xs font-bold text-emerald-700">
-                                            <Users className="h-3.5 w-3.5 inline mr-1" />
-                                            {selectedPhones.size} contact{selectedPhones.size > 1 ? 's' : ''} selected
+                                    {/* Bulk action buttons */}
+                                    <div className={`flex items-center gap-3 transition-all duration-300 ${selectedPhones.size > 0 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
+                                        <span className="text-xs font-bold text-slate-500 flex items-center gap-2 mr-2">
+                                            <Users className="h-4 w-4 text-emerald-600" />
+                                            {selectedPhones.size} selected
                                         </span>
                                         <button
-                                            onClick={() => setTagsModalOpen(true)}
-                                            className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors"
+                                            onClick={() => setRetargetModalOpen(true)}
+                                            className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white bg-sky-600 hover:bg-sky-700 px-4 py-2 rounded-xl transition-all shadow-lg shadow-sky-100"
                                         >
-                                            <Tag className="h-3.5 w-3.5" />
-                                            Add Tags
+                                            <RotateCw className="h-4 w-4" />
+                                            Retarget
+                                        </button>
+                                        <button
+                                            onClick={() => setTagsModalOpen(true)}
+                                            className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-xl transition-all shadow-lg shadow-emerald-100"
+                                        >
+                                            <Tag className="h-4 w-4" />
+                                            Tag Contacts
                                         </button>
                                     </div>
-                                )}
+                                </div>
 
-                                {/* Contact list */}
                                 <div className="flex-1 overflow-y-auto">
                                     {contacts.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center h-48 text-slate-400">
-                                            <Users className="h-10 w-10 mb-2 opacity-30" />
-                                            <p className="text-sm font-medium">No contacts in this category</p>
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-400 p-12">
+                                            <div className="w-20 h-20 rounded-full bg-slate-50 flex items-center justify-center mb-4">
+                                                <Users className="h-10 w-10 opacity-20" />
+                                            </div>
+                                            <p className="text-sm font-bold uppercase tracking-widest opacity-60">No contacts found</p>
+                                            <p className="text-xs mt-1">There are no contacts in this status category.</p>
                                         </div>
                                     ) : (
-                                        <table className="w-full text-sm">
-                                            <thead className="sticky top-0 bg-white border-b border-slate-100">
-                                                <tr>
-                                                    <th className="px-6 py-2.5 text-left w-8">
-                                                        <button onClick={toggleAll} className="text-slate-400 hover:text-emerald-600">
+                                        <table className="w-full text-sm border-collapse">
+                                            <thead className="sticky top-0 bg-white shadow-sm z-10">
+                                                <tr className="bg-slate-50/50">
+                                                    <th className="px-8 py-4 text-left w-12">
+                                                        <button onClick={toggleAll} className="text-slate-400 hover:text-emerald-600 transition-colors">
                                                             {allSelected
-                                                                ? <CheckSquare className="h-4 w-4 text-emerald-600" />
-                                                                : <Square className="h-4 w-4" />}
+                                                                ? <CheckSquare className="h-5 w-5 text-emerald-600" />
+                                                                : <Square className="h-5 w-5" />}
                                                         </button>
                                                     </th>
-                                                    <th className="px-2 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Name</th>
-                                                    <th className="px-2 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Phone</th>
-                                                    <th className="px-2 py-2.5 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</th>
-                                                    <th className="px-2 py-2.5 pr-6 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time</th>
+                                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Contact Name</th>
+                                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Phone Number</th>
+                                                    <th className="px-4 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Delivery Status</th>
+                                                    <th className="px-8 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Event Time</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-50">
+                                            <tbody className="divide-y divide-slate-100">
                                                 {contacts.map((c) => (
                                                     <tr
                                                         key={c.id}
                                                         onClick={() => togglePhone(c.phone)}
-                                                        className={`cursor-pointer transition-colors hover:bg-slate-50 ${selectedPhones.has(c.phone) ? 'bg-emerald-50' : ''}`}
+                                                        className={`group cursor-pointer transition-all hover:bg-slate-50/80 ${selectedPhones.has(c.phone) ? 'bg-emerald-50/40' : ''}`}
                                                     >
-                                                        <td className="px-6 py-3">
-                                                            {selectedPhones.has(c.phone)
-                                                                ? <CheckSquare className="h-4 w-4 text-emerald-600" />
-                                                                : <Square className="h-4 w-4 text-slate-300" />}
+                                                        <td className="px-8 py-4">
+                                                            <div className={`transition-transform duration-200 ${selectedPhones.has(c.phone) ? 'scale-110' : 'group-hover:scale-110'}`}>
+                                                                {selectedPhones.has(c.phone)
+                                                                    ? <CheckSquare className="h-5 w-5 text-emerald-600" />
+                                                                    : <Square className="h-5 w-5 text-slate-300" />}
+                                                            </div>
                                                         </td>
-                                                        <td className="px-2 py-3 font-medium text-slate-800">{c.name}</td>
-                                                        <td className="px-2 py-3 text-slate-500 font-mono text-xs">{c.phone}</td>
-                                                        <td className="px-2 py-3">
-                                                            <StatusBadge status={c.status} />
-                                                            {c.failReason && (
-                                                                <p className="text-[10px] text-rose-500 mt-0.5 truncate max-w-[120px]" title={c.failReason}>
-                                                                    {c.failReason}
-                                                                </p>
-                                                            )}
+                                                        <td className="px-4 py-4 font-bold text-slate-800">{c.name}</td>
+                                                        <td className="px-4 py-4 text-slate-500 font-mono text-xs">{c.phone}</td>
+                                                        <td className="px-4 py-4">
+                                                            <div className="flex flex-col gap-1">
+                                                                <StatusBadge status={c.status} />
+                                                                {c.failReason && (
+                                                                    <span className="text-[10px] text-rose-500 font-medium max-w-[200px] truncate" title={c.failReason}>
+                                                                        {c.failReason}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         </td>
-                                                        <td className="px-2 py-3 pr-6 text-xs text-slate-400 whitespace-nowrap">
+                                                        <td className="px-8 py-4 text-xs font-medium text-slate-400 whitespace-nowrap">
                                                             {format(new Date(c.sentAt), 'MMM d, HH:mm')}
                                                         </td>
                                                     </tr>
@@ -590,13 +734,17 @@ export default function CampaignsPage() {
                                         </table>
                                     )}
                                 </div>
-                            </>
-                        ) : (
-                            <div className="flex-1 flex items-center justify-center text-slate-400">
-                                <AlertCircle className="h-6 w-6 mr-2" /> Failed to load analytics.
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    ) : (
+                        <div className="h-[600px] flex items-center justify-center text-slate-400">
+                            <div className="text-center">
+                                <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                                <p className="font-bold uppercase tracking-widest">Failed to load analytics</p>
+                                <button onClick={() => fetchCampaigns()} className="mt-4 text-emerald-600 hover:underline text-sm font-bold">Try again</button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -684,6 +832,79 @@ export default function CampaignsPage() {
                                 )}
                             </div>
 
+                            <div className="space-y-3">
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Target Audience</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { id: 'all', label: 'All Contacts', icon: Users },
+                                        { id: 'tags', label: 'By Tags', icon: Tag },
+                                        { id: 'contacts', label: 'Specific List', icon: ChevronRight }
+                                    ].map(type => (
+                                        <button
+                                            key={type.id}
+                                            type="button"
+                                            onClick={() => setTargetType(type.id as any)}
+                                            className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all gap-1 ${
+                                                targetType === type.id 
+                                                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700' 
+                                                    : 'border-slate-100 hover:border-slate-200 text-slate-500'
+                                            }`}
+                                        >
+                                            <type.icon className="h-4 w-4" />
+                                            <span className="text-[10px] font-bold">{type.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {targetType === 'tags' && (
+                                    <div className="animate-in slide-in-from-top-2 duration-200">
+                                        <input
+                                            type="text"
+                                            placeholder="Enter tags comma-separated (e.g. VIP, June)"
+                                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-emerald-500 focus:outline-none"
+                                            value={creationTags}
+                                            onChange={e => setCreationTags(e.target.value)}
+                                        />
+                                    </div>
+                                )}
+
+                                {targetType === 'contacts' && (
+                                    <div className="animate-in slide-in-from-top-2 duration-200 border border-slate-100 rounded-xl p-3 bg-slate-50/50">
+                                        <input
+                                            type="text"
+                                            placeholder="Search contacts..."
+                                            className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs mb-2"
+                                            value={contactSearch}
+                                            onChange={e => setContactSearch(e.target.value)}
+                                        />
+                                        <div className="max-h-40 overflow-y-auto space-y-1">
+                                            {allContacts
+                                                .filter(c => c.name.toLowerCase().includes(contactSearch.toLowerCase()) || c.phone.includes(contactSearch))
+                                                .map(c => (
+                                                <label key={c.id} className="flex items-center gap-2 p-1.5 hover:bg-white rounded-lg cursor-pointer transition-colors">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={creationSelectedPhones.includes(c.phone)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) setCreationSelectedPhones([...creationSelectedPhones, c.phone]);
+                                                            else setCreationSelectedPhones(creationSelectedPhones.filter(p => p !== c.phone));
+                                                        }}
+                                                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                                                    />
+                                                    <div className="flex flex-col overflow-hidden">
+                                                        <span className="text-xs font-bold truncate">{c.name}</span>
+                                                        <span className="text-[10px] text-slate-400 font-mono">{c.phone}</span>
+                                                    </div>
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <div className="mt-2 text-[10px] font-bold text-slate-500">
+                                            {creationSelectedPhones.length} contacts selected
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             {selectedTemplate && (
                                 <div className="space-y-4 pt-4 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
                                     <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Template Variables</h4>
@@ -763,6 +984,70 @@ export default function CampaignsPage() {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+            {/* ── Retarget Modal ────────────────────────────────────────────── */}
+            {retargetModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="flex items-center justify-between p-6 border-b border-slate-100">
+                            <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center">
+                                    <RotateCw className="h-5 w-5" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-slate-900">Retarget Campaign</h2>
+                                    <p className="text-xs text-slate-500 mt-1">Send to {selectedPhones.size} selected contacts.</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setRetargetModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
+                                <X className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-5">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">New Campaign Name</label>
+                                <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. Retargeting - Summer Sale"
+                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-50"
+                                    value={retargetName}
+                                    onChange={(e) => setRetargetName(e.target.value)}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Select Template</label>
+                                <select
+                                    required
+                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-4 focus:ring-sky-50"
+                                    value={retargetTemplateId}
+                                    onChange={(e) => setRetargetTemplateId(e.target.value)}
+                                >
+                                    <option value="">Choose a template...</option>
+                                    {templates.map(t => (
+                                        <option key={t.id} value={t.id}>{t.templateName}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="pt-4 flex justify-end gap-3">
+                                <button type="button" onClick={() => setRetargetModalOpen(false)} className="px-6 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleRetarget}
+                                    disabled={isRetargeting || !retargetName || !retargetTemplateId}
+                                    className="px-6 py-2.5 text-sm font-bold text-white bg-sky-600 rounded-xl shadow-lg shadow-sky-100 hover:bg-sky-700 transition-all disabled:opacity-50 flex items-center gap-2"
+                                >
+                                    {isRetargeting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    Launch Retargeting
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
