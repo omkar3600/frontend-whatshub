@@ -74,6 +74,7 @@ export default function CampaignsPage() {
     const [templates, setTemplates] = useState<any[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [isResending, setIsResending] = useState<string | null>(null);
+    const [sendNow, setSendNow] = useState(false);
     const [newCampaign, setNewCampaign] = useState({
         name: '',
         templateId: '',
@@ -234,14 +235,22 @@ export default function CampaignsPage() {
                     });
                 }
             }
+            // Convert local datetime to UTC ISO string to avoid timezone issues
+            const scheduledAtUTC = sendNow
+                ? new Date().toISOString()
+                : new Date(newCampaign.scheduledAt).toISOString();
             await api.post('/campaigns', {
-                ...newCampaign,
+                name: newCampaign.name,
+                templateId: newCampaign.templateId,
+                scheduledAt: scheduledAtUTC,
+                sendNow,
                 templateParams: components.length > 0 ? components : undefined,
                 headerMediaUrl: headerMediaUrl || undefined
             });
             setIsModalOpen(false);
             fetchCampaigns();
             setNewCampaign({ name: '', templateId: '', scheduledAt: format(new Date(), "yyyy-MM-dd'T'HH:mm") });
+            setSendNow(false);
             setSelectedTemplate(null);
             setTemplateParams({});
             setHeaderMediaUrl('');
@@ -701,23 +710,56 @@ export default function CampaignsPage() {
                                 </div>
                             )}
 
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Schedule Send Time</label>
-                                <input
-                                    type="datetime-local"
-                                    required
-                                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-50"
-                                    value={newCampaign.scheduledAt}
-                                    onChange={(e) => setNewCampaign({ ...newCampaign, scheduledAt: e.target.value })}
-                                />
+                            {/* Send Now vs Schedule toggle */}
+                            <div className="rounded-xl border border-slate-200 overflow-hidden">
+                                <div className="flex">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSendNow(false)}
+                                        className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
+                                            !sendNow
+                                                ? 'bg-emerald-600 text-white'
+                                                : 'bg-white text-slate-500 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        📅 Schedule
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSendNow(true)}
+                                        className={`flex-1 py-2.5 text-sm font-bold transition-colors ${
+                                            sendNow
+                                                ? 'bg-emerald-600 text-white'
+                                                : 'bg-white text-slate-500 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        ⚡ Send Now
+                                    </button>
+                                </div>
                             </div>
 
+                            {!sendNow && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Schedule Date &amp; Time (your local time)</label>
+                                    <input
+                                        type="datetime-local"
+                                        required
+                                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-50"
+                                        value={newCampaign.scheduledAt}
+                                        onChange={(e) => setNewCampaign({ ...newCampaign, scheduledAt: e.target.value })}
+                                    />
+                                    <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
+                                        <Info className="h-3 w-3" /> Time is sent in your local timezone.
+                                    </p>
+                                </div>
+                            )}
+
                             <div className="pt-4 flex justify-end gap-3">
-                                <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
+                                <button type="button" onClick={() => { setIsModalOpen(false); setSendNow(false); }} className="px-6 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all">
                                     Cancel
                                 </button>
-                                <button type="submit" disabled={isSaving} className="px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50">
-                                    {isSaving ? 'Creating...' : 'Launch Campaign'}
+                                <button type="submit" disabled={isSaving} className="px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 rounded-xl shadow-lg shadow-emerald-100 hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center gap-2">
+                                    {isSaving ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating...</> : sendNow ? '⚡ Launch Now' : '📅 Schedule Campaign'}
                                 </button>
                             </div>
                         </form>
