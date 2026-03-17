@@ -15,6 +15,9 @@ export default function CampaignsPage() {
         templateId: '',
         scheduledAt: format(new Date(), "yyyy-MM-dd'T'HH:mm")
     });
+    const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+    const [templateParams, setTemplateParams] = useState<{ [key: string]: string }>({});
+    const [headerMediaUrl, setHeaderMediaUrl] = useState('');
     const [isResending, setIsResending] = useState<string | null>(null);
 
     useEffect(() => {
@@ -55,11 +58,53 @@ export default function CampaignsPage() {
         }
     };
 
+    const handleTemplateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const val = e.target.value;
+        setNewCampaign({ ...newCampaign, templateId: val });
+        const t = templates.find(t => t.id === val);
+        setSelectedTemplate(t || null);
+        setTemplateParams({});
+        setHeaderMediaUrl('');
+    };
+
     const handleCreateCampaign = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSaving(true);
         try {
-            await api.post('/campaigns', newCampaign);
+            const components: any[] = [];
+            if (selectedTemplate) {
+                const header = selectedTemplate.components?.find((c: any) => c.type === 'HEADER');
+                if (header && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(header.format) && headerMediaUrl) {
+                    components.push({
+                        type: 'header',
+                        parameters: [
+                            {
+                                type: header.format.toLowerCase(),
+                                [header.format.toLowerCase()]: { link: headerMediaUrl }
+                            }
+                        ]
+                    });
+                }
+                
+                const body = selectedTemplate.components?.find((c: any) => c.type === 'BODY')?.text || '';
+                const matches = body.match(/\{\{(\d+)\}\}/g) || [];
+                const uniqueVars = Array.from(new Set(matches)).sort() as string[];
+                if (uniqueVars.length > 0) {
+                    components.push({
+                        type: 'body',
+                        parameters: uniqueVars.map((v: string) => ({
+                            type: 'text',
+                            text: templateParams[v] || ''
+                        }))
+                    });
+                }
+            }
+
+            await api.post('/campaigns', {
+                ...newCampaign,
+                templateParams: components.length > 0 ? components : undefined,
+                headerMediaUrl: headerMediaUrl || undefined
+            });
             setIsModalOpen(false);
             fetchCampaigns();
             setNewCampaign({
@@ -67,6 +112,9 @@ export default function CampaignsPage() {
                 templateId: '',
                 scheduledAt: format(new Date(), "yyyy-MM-dd'T'HH:mm")
             });
+            setSelectedTemplate(null);
+            setTemplateParams({});
+            setHeaderMediaUrl('');
         } catch (err) {
             console.error(err);
             alert('Failed to create campaign');
@@ -220,7 +268,7 @@ export default function CampaignsPage() {
                                     required
                                     className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-50"
                                     value={newCampaign.templateId}
-                                    onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
+                                    onChange={handleTemplateChange}
                                 >
                                     <option value="">Choose a template...</option>
                                     {templates.map(t => (
@@ -233,6 +281,36 @@ export default function CampaignsPage() {
                                     </p>
                                 )}
                             </div>
+
+                            {selectedTemplate && (
+                                <div className="space-y-4 pt-4 border-t border-slate-100 animate-in fade-in slide-in-from-top-2">
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Template Variables</h4>
+                                    
+                                    {selectedTemplate.components?.some((c: any) => c.type === 'HEADER' && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(c.format)) && (
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">Header Media URL <Info className="h-3 w-3 text-slate-400"/></label>
+                                            <input type="url" placeholder="https://example.com/media.png" className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-50" value={headerMediaUrl} onChange={e => setHeaderMediaUrl(e.target.value)} required />
+                                        </div>
+                                    )}
+                                    
+                                    {(() => {
+                                        const body = selectedTemplate.components?.find((c: any) => c.type === 'BODY')?.text || '';
+                                        const matches = body.match(/\{\{(\d+)\}\}/g) || [];
+                                        const uniqueVars = Array.from(new Set(matches)).sort() as string[];
+                                        
+                                        if (uniqueVars.length === 0 && !selectedTemplate.components?.some((c: any) => c.type === 'HEADER' && ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(c.format))) {
+                                            return <p className="text-[10px] text-slate-400 italic">No dynamic variables needed for this template.</p>;
+                                        }
+                                        
+                                        return uniqueVars.map((v: string) => (
+                                            <div key={v}>
+                                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Variable {v}</label>
+                                                <input type="text" placeholder={`Value for ${v}`} className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-50" value={templateParams[v] || ''} onChange={e => setTemplateParams({...templateParams, [v]: e.target.value})} required />
+                                            </div>
+                                        ));
+                                    })()}
+                                </div>
+                            )}
 
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Schedule Send Time</label>

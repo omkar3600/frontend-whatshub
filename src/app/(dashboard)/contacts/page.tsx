@@ -109,6 +109,7 @@ export default function ContactsPage() {
                         />
                     </div>
                 </div>
+                <div className="overflow-x-auto w-full">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                     <thead className="bg-white text-slate-500">
                         <tr>
@@ -155,6 +156,7 @@ export default function ContactsPage() {
                         ))}
                     </tbody>
                 </table>
+                </div>
                 {filteredContacts.length === 0 && (
                     <div className="p-12 text-center text-slate-500">
                         <Users className="mx-auto h-12 w-12 text-slate-300 mb-3" />

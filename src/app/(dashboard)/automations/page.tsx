@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Bot, Plus, Trash2, Power, Zap, MessageSquare, Clock } from 'lucide-react';
+import { Bot, Plus, Trash2, Power, Zap, MessageSquare, Clock, Edit2 } from 'lucide-react';
 
 export default function AutomationsPage() {
     const [automations, setAutomations] = useState<any[]>([]);
@@ -13,6 +13,7 @@ export default function AutomationsPage() {
         triggerKeyword: '',
         replyText: '',
     });
+    const [isEditing, setIsEditing] = useState<string | null>(null);
 
     useEffect(() => {
         fetchAutomations();
@@ -32,14 +33,29 @@ export default function AutomationsPage() {
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
-            await api.post('/automations', newAutomation);
+            if (isEditing) {
+                await api.put(`/automations/${isEditing}`, newAutomation);
+            } else {
+                await api.post('/automations', newAutomation);
+            }
             setIsModalOpen(false);
             setNewAutomation({ type: 'keyword', triggerKeyword: '', replyText: '' });
+            setIsEditing(null);
             fetchAutomations();
         } catch (err) {
             console.error(err);
-            alert('Failed to create automation');
+            alert(isEditing ? 'Failed to update automation' : 'Failed to create automation');
         }
+    };
+
+    const handleEdit = (auto: any) => {
+        setNewAutomation({
+            type: auto.type,
+            triggerKeyword: auto.triggerKeyword || '',
+            replyText: auto.replyText
+        });
+        setIsEditing(auto.id);
+        setIsModalOpen(true);
     };
 
     const toggleStatus = async (id: string, current: boolean) => {
@@ -86,18 +102,24 @@ export default function AutomationsPage() {
                             <div className={`p-2 rounded-lg ${auto.type === 'welcome' ? 'bg-blue-50 text-blue-600' : auto.type === 'away' ? 'bg-amber-50 text-amber-600' : 'bg-purple-50 text-purple-600'}`}>
                                 {auto.type === 'welcome' ? <Zap className="h-5 w-5" /> : auto.type === 'away' ? <Clock className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 items-center">
                                 <button
-                                    onClick={() => toggleStatus(auto.id, auto.isActive)}
-                                    className={`p-1 rounded-md transition-colors ${auto.isActive ? 'text-emerald-600 hover:bg-emerald-50' : 'text-gray-400 hover:bg-gray-100'}`}
+                                    onClick={() => handleEdit(auto)}
+                                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
                                 >
-                                    <Power className="h-4 w-4" />
+                                    <Edit2 className="h-4 w-4" />
                                 </button>
                                 <button
                                     onClick={() => deleteAutomation(auto.id)}
                                     className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
                                 >
                                     <Trash2 className="h-4 w-4" />
+                                </button>
+                                <button
+                                    onClick={() => toggleStatus(auto.id, auto.isActive)}
+                                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${auto.isActive ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                                >
+                                    <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${auto.isActive ? 'translate-x-2' : '-translate-x-2'}`} />
                                 </button>
                             </div>
                         </div>
@@ -130,7 +152,7 @@ export default function AutomationsPage() {
             {isModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl animate-in zoom-in duration-200">
-                        <h2 className="text-xl font-bold text-gray-900 mb-4">Create Automation</h2>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">{isEditing ? 'Edit Automation' : 'Create Automation'}</h2>
                         <form onSubmit={handleCreate} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Automation Type</label>
@@ -174,7 +196,7 @@ export default function AutomationsPage() {
                             <div className="mt-6 flex justify-end gap-3">
                                 <button
                                     type="button"
-                                    onClick={() => setIsModalOpen(false)}
+                                    onClick={() => { setIsModalOpen(false); setIsEditing(null); setNewAutomation({ type: 'keyword', triggerKeyword: '', replyText: '' }); }}
                                     className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
                                 >
                                     Cancel
@@ -183,7 +205,7 @@ export default function AutomationsPage() {
                                     type="submit"
                                     className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 shadow-md transition-all"
                                 >
-                                    Save Automation
+                                    {isEditing ? 'Update Automation' : 'Save Automation'}
                                 </button>
                             </div>
                         </form>

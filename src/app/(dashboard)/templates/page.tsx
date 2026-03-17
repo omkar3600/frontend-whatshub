@@ -180,6 +180,7 @@ export default function TemplatesPage() {
             </div>
 
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="overflow-x-auto w-full">
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                     <thead className="bg-slate-50 text-slate-500">
                         <tr>
@@ -245,6 +246,7 @@ export default function TemplatesPage() {
                         )}
                     </tbody>
                 </table>
+                </div>
                 {!loading && templates.length === 0 && (
                     <div className="p-12 text-center text-slate-500">
                         <Zap className="mx-auto h-12 w-12 text-emerald-200 mb-3" />

@@ -111,14 +111,7 @@ export default function LoginPage() {
                         </div>
                     </form>
 
-                    <div className="mt-8 pt-6 border-t border-white/5 text-center">
-                        <p className="text-sm text-slate-500">
-                            New here?{' '}
-                            <Link href="/register" className="font-bold text-emerald-500 hover:text-emerald-400 transition-colors">
-                                Create an account
-                            </Link>
-                        </p>
-                    </div>
+
                 </div>
 
                 {/* Security Footer */}

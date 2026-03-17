@@ -85,7 +85,15 @@ function InboxContent() {
     };
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const checkScroll = () => {
+            const el = messagesEndRef.current?.parentElement;
+            if (!el) return;
+            const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+            if (isNearBottom || messages.length < 10) {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }
+        };
+        setTimeout(checkScroll, 50);
     }, [messages]);
 
     const fetchConversations = async () => {
@@ -126,7 +134,7 @@ function InboxContent() {
         try {
             await api.post(`/messages/conversation/${activeConvo.id}`, {
                 type: 'template',
-                content: template.name
+                content: template.templateName
             });
             fetchMessages(activeConvo.id);
             fetchConversations();
@@ -192,7 +200,7 @@ function InboxContent() {
     };
 
     return (
-        <div className="flex h-full md:h-[calc(100vh-8rem)] overflow-hidden md:rounded-2xl bg-white md:shadow-sm md:ring-1 md:ring-slate-200">
+        <div className="flex h-full overflow-hidden bg-white">
 
             {/* Sidebar: Conversations List */}
             <div className={`w-full md:w-1/3 flex-shrink-0 border-r border-slate-200 md:flex flex-col bg-slate-50 relative ${showMobileChat ? 'hidden' : 'flex'}`}>
@@ -287,16 +295,18 @@ function InboxContent() {
                                             <h4 className="text-xs font-bold text-slate-700">Quick Templates</h4>
                                         </div>
                                         <div className="max-h-60 overflow-y-auto">
-                                            {templates.map(t => (
+                                            {templates.map(t => {
+                                                const body = t.components?.find((c: any) => c.type === 'BODY')?.text || '';
+                                                return (
                                                 <button
                                                     key={t.id}
                                                     onClick={() => handleSendTemplate(t)}
                                                     className="w-full text-left p-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors"
                                                 >
-                                                    <p className="text-sm font-bold text-slate-900">{t.name}</p>
-                                                    <p className="text-xs text-slate-500 truncate mt-0.5">{t.content}</p>
+                                                    <p className="text-sm font-bold text-slate-900">{t.templateName}</p>
+                                                    <p className="text-xs text-slate-500 truncate mt-0.5">{body}</p>
                                                 </button>
-                                            ))}
+                                            )})}
                                             {templates.length === 0 && (
                                                 <div className="p-4 text-center text-xs text-slate-400 font-medium">No templates found</div>
                                             )}

@@ -191,20 +191,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 function MobileHeader({ pathname, user }: { pathname: string, user: any }) {
     const searchParams = useSearchParams();
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+    const { logout } = useAuth();
     const isChatActive = pathname.startsWith('/inbox') && searchParams.get('convoId');
 
     if (isChatActive) return null;
 
     return (
-        <header className="flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden shadow-sm z-50">
+        <header className="flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-4 md:hidden shadow-sm z-50 relative">
             <Link href="/dashboard" className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 shadow-md">
                     <MessageSquare className="h-5 w-5 text-white" />
                 </div>
                 <span className="text-lg font-bold text-slate-900 tracking-tight">WhatsHub</span>
             </Link>
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700 text-xs">
-                {(user.username || user.email || '?').substring(0, 2).toUpperCase()}
+            <div className="relative">
+                <button 
+                    onClick={() => setDropdownOpen(!dropdownOpen)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                    {(user.username || user.email || '?').substring(0, 2).toUpperCase()}
+                </button>
+                {dropdownOpen && (
+                    <>
+                        <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)}></div>
+                        <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden animate-in fade-in zoom-in duration-200">
+                            <div className="p-3 border-b border-slate-100 bg-slate-50">
+                                <p className="text-sm font-bold text-slate-900 truncate">{user.username}</p>
+                            </div>
+                            <div className="py-1">
+                                <Link onClick={() => setDropdownOpen(false)} href="/settings" className="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors">
+                                    <Settings className="h-4 w-4" /> Settings
+                                </Link>
+                                <button onClick={() => { setDropdownOpen(false); logout(); }} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 transition-colors">
+                                    <LogOut className="h-4 w-4" /> Log Out
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
         </header>
     );
